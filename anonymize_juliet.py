@@ -20,12 +20,23 @@ LLMによる脆弱性判定のため、コードからヒント情報を除去�
 3. 変数名匿名化パターン (variable_patterns):
    - 型を示唆する変数名の中性化 (charBuffer -> buffer1)
    - セキュリティ関連変数名の一般化 (password -> userInput)
+   - データ型の匿名化 (unsigned int -> uint_type)
 
-4. 処理フロー:
+4. 文字列パターン匿名化 (string_patterns):
+   - デバッグメッセージの一般化 ("Inside the ..." -> "debug_message")
+   - ステータスメッセージの統一化 ("success/fail/error" -> 汎用メッセージ)
+
+5. 定数パターン匿名化 (constant_patterns):
+   - ネットワーク定数の匿名化 (INVALID_SOCKET -> INVALID_HANDLE)
+   - システム定数の匿名化 (FILENAME -> FILE_PATH)
+
+6. 処理フロー:
    a. ヒント的コメントの段階的除去
-   b. 関数名の匿名化
-   c. 変数名の匿名化  
-   d. 空行整理
+   b. 関数名の匿名化 (API関数、ネットワーク・メモリ関数含む)
+   c. 変数名・型名の匿名化 (Windows型、文字列型含む)
+   d. 文字列パターンの匿名化 (エラー・ステータスメッセージ)
+   e. 定数パターンの匿名化
+   f. 空行整理
 
 5. 関数抽出:
    - 波括弧カウンティングによる正確な関数本体抽出
@@ -84,6 +95,52 @@ class JulietAnonymizer:
             (r'(\w+)_good\b', r'\1_func2'),     # _good -> _func2  
             (r'goodG2B\b', 'functionA'),        # goodG2B -> functionA
             (r'goodB2G\b', 'functionB'),        # goodB2G -> functionB
+            (r'good1\b', 'functionC'),          # good1 -> functionC
+            (r'good2\b', 'functionD'),          # good2 -> functionD
+            (r'goodB2G1\b', 'functionE'),       # goodB2G1 -> functionE
+            (r'goodB2G2\b', 'functionF'),       # goodB2G2 -> functionF
+            (r'goodG2B1\b', 'functionG'),       # goodG2B1 -> functionG
+            (r'goodG2B2\b', 'functionH'),       # goodG2B2 -> functionH
+            # ランダム・テスト関数の匿名化
+            (r'\bRAND32\(\)', 'getRandomValue()'), # RAND32() -> getRandomValue()
+            (r'\brand\(\)', 'getRandomValue()'),    # rand() -> getRandomValue()
+            (r'\bglobalReturnsTrue\(\)', 'checkCondition()'), # globalReturnsTrue() -> checkCondition()
+            (r'\bglobalReturnsFalse\(\)', 'checkCondition()'), # globalReturnsFalse() -> checkCondition()
+            # Windows APIの匿名化
+            (r'\bLoadLibraryW?\b', 'loadModule'),    # LoadLibrary -> loadModule
+            (r'\bFreeLibrary\b', 'freeModule'),     # FreeLibrary -> freeModule
+            (r'\bCreateProcess[AW]?\b', 'startProcess'), # CreateProcess -> startProcess
+            (r'\bWSAStartup\b', 'initNetwork'),     # WSAStartup -> initNetwork
+            (r'\bWSACleanup\b', 'cleanupNetwork'), # WSACleanup -> cleanupNetwork
+            # ネットワーク関数の匿名化
+            (r'\bsocket\b', 'createSocket'),        # socket -> createSocket
+            (r'\bconnect\b', 'connectTo'),          # connect -> connectTo
+            (r'\bbind\b', 'bindSocket'),            # bind -> bindSocket
+            (r'\blisten\b', 'listenSocket'),        # listen -> listenSocket
+            (r'\baccept\b', 'acceptConnection'),    # accept -> acceptConnection
+            (r'\brecv\b', 'receiveData'),           # recv -> receiveData
+            (r'\bsend\b', 'sendData'),              # send -> sendData
+            # メモリ関数の匿名化
+            (r'\bmalloc\b', 'allocateMemory'),      # malloc -> allocateMemory
+            (r'\bfree\b', 'freeMemory'),            # free -> freeMemory
+            (r'\bmemmove\b', 'moveMemory'),         # memmove -> moveMemory
+            (r'\bmemcpy\b', 'copyMemory'),          # memcpy -> copyMemory
+            (r'\bmemset\b', 'setMemory'),           # memset -> setMemory
+            # 文字列関数の匿名化
+            (r'\bwcscpy\b', 'copyWideString'),      # wcscpy -> copyWideString
+            (r'\bwcslen\b', 'getWideStringLength'), # wcslen -> getWideStringLength
+            (r'\bwcschr\b', 'findWideChar'),       # wcschr -> findWideChar
+            (r'\bstrcpy\b', 'copyString'),          # strcpy -> copyString
+            (r'\bstrlen\b', 'getStringLength'),     # strlen -> getStringLength
+            (r'\bfgetws\b', 'readWideString'),      # fgetws -> readWideString
+            (r'\bfgets\b', 'readString'),           # fgets -> readString
+            (r'\bsprintf\b', 'formatString'),       # sprintf -> formatString
+            (r'\bvprintf\b', 'printFormatted'),     # vprintf -> printFormatted
+            # ファイル関数の匿名化
+            (r'\bfopen\b', 'openFile'),             # fopen -> openFile
+            (r'\bfclose\b', 'closeFile'),           # fclose -> closeFile
+            (r'\bfread\b', 'readFile'),             # fread -> readFile
+            (r'\bfwrite\b', 'writeFile'),           # fwrite -> writeFile
         ]
         
         # 変数名匿名化パターン
@@ -106,6 +163,63 @@ class JulietAnonymizer:
             # サイズや長さを示唆する変数名
             (r'\bpasswordLen\b', 'inputLen'),   # passwordLen -> inputLen
             (r'\bhostnameLen\b', 'targetLen'),  # hostnameLen -> targetLen
+            
+            # 型の匿名化
+            (r'\bunsigned int\b', 'uint_type'), # unsigned int -> uint_type
+            (r'\bsigned int\b', 'int_type'),    # signed int -> int_type
+            # Windows型の匿名化
+            (r'\bHMODULE\b', 'ModuleHandle'),   # HMODULE -> ModuleHandle
+            (r'\bHANDLE\b', 'ResourceHandle'),  # HANDLE -> ResourceHandle
+            (r'\bDWORD\b', 'UInt32Type'),       # DWORD -> UInt32Type
+            (r'\bBYTE\b', 'UInt8Type'),         # BYTE -> UInt8Type
+            (r'\bSOCKET\b', 'SocketHandle'),    # SOCKET -> SocketHandle
+            (r'\bWSADATA\b', 'NetworkData'),    # WSADATA -> NetworkData
+            # 文字列型の匿名化
+            (r'\bwchar_t\b', 'WideCharType'),   # wchar_t -> WideCharType
+            (r'\bTCHAR\b', 'CharType'),         # TCHAR -> CharType
+            (r'\bLPWSTR\b', 'WideStringPtr'),   # LPWSTR -> WideStringPtr
+            (r'\bLPSTR\b', 'StringPtr'),        # LPSTR -> StringPtr
+            # サイズ型の匿名化
+            (r'\bsize_t\b', 'SizeType'),        # size_t -> SizeType
+            (r'\bssize_t\b', 'SignedSizeType'), # ssize_t -> SignedSizeType
+            # カスタム型の匿名化
+            (r'\btwoIntsStruct\b', 'DataStruct'), # twoIntsStruct -> DataStruct
+            (r'\bunionType\b', 'DataUnion'),     # unionType -> DataUnion
+        ]
+        
+        # 文字列パターンの匿名化
+        self.string_patterns = [
+            (r'"Inside the .*?"', '"debug_message"'),     # "Inside the ..." -> "debug_message"
+            (r'"Hello from .*?"', '"status_message"'),    # "Hello from ..." -> "status_message"
+            (r'"Calling .*?"', '"action_message"'),       # "Calling ..." -> "action_message"
+            (r'"Finished .*?"', '"completion_message"'),  # "Finished ..." -> "completion_message"
+            (r'"Benign.*?fixed.*?string"', '"test_string"'), # "Benign, fixed string" -> "test_string"
+            # ステータスメッセージの匿名化
+            (r'".*?success.*?"', '"operation_completed"'), # Success messages -> "operation_completed"
+            (r'".*?fail.*?"', '"operation_failed"'),       # Failure messages -> "operation_failed"
+            (r'".*?error.*?"', '"error_occurred"'),        # Error messages -> "error_occurred"
+            (r'".*?login.*?"', '"auth_message"'),          # Login messages -> "auth_message"
+            (r'"fgetws.*?failed"', '"input_error"'),       # fgetws() failed -> "input_error"
+            (r'"Library loaded.*?"', '"lib_status"'),      # Library status -> "lib_status"
+            (r'"command execution.*?"', '"exec_status"'),  # Execution status -> "exec_status"
+        ]
+        
+        # 定数の匿名化
+        self.constant_patterns = [
+            (r'\bINVALID_SOCKET\b', 'INVALID_HANDLE'),    # INVALID_SOCKET -> INVALID_HANDLE
+            (r'\bSOCKET_ERROR\b', 'HANDLE_ERROR'),       # SOCKET_ERROR -> HANDLE_ERROR
+            (r'\bAF_INET\b', 'ADDR_FAMILY'),             # AF_INET -> ADDR_FAMILY
+            (r'\bSOCK_STREAM\b', 'SOCKET_TYPE'),         # SOCK_STREAM -> SOCKET_TYPE
+            (r'\bIPPROTO_TCP\b', 'PROTOCOL_TYPE'),       # IPPROTO_TCP -> PROTOCOL_TYPE
+            (r'\bMAKEWORD\b', 'MAKE_VERSION'),           # MAKEWORD -> MAKE_VERSION
+            (r'\bNO_ERROR\b', 'SUCCESS_CODE'),           # NO_ERROR -> SUCCESS_CODE
+            (r'\bstaticTrue\b', 'CONDITION_TRUE'),       # staticTrue -> CONDITION_TRUE
+            (r'\bstaticFalse\b', 'CONDITION_FALSE'),     # staticFalse -> CONDITION_FALSE
+            (r'\bGLOBAL_CONST_TRUE\b', 'GLOBAL_TRUE'),   # GLOBAL_CONST_TRUE -> GLOBAL_TRUE
+            (r'\bGLOBAL_CONST_FALSE\b', 'GLOBAL_FALSE'), # GLOBAL_CONST_FALSE -> GLOBAL_FALSE
+            (r'\bFILENAME\b', 'FILE_PATH'),              # FILENAME -> FILE_PATH
+            (r'\bIP_ADDRESS\b', 'TARGET_ADDR'),          # IP_ADDRESS -> TARGET_ADDR
+            (r'\bTCP_PORT\b', 'TARGET_PORT'),            # TCP_PORT -> TARGET_PORT
         ]
     
     def anonymize_content(self, content: str) -> str:
@@ -124,7 +238,15 @@ class JulietAnonymizer:
         for old_pattern, new_pattern in self.variable_patterns:
             anonymized = re.sub(old_pattern, new_pattern, anonymized)
         
-        # 4. 余分な空行を削除
+        # 4. 文字列パターンを匿名化
+        for old_pattern, new_pattern in self.string_patterns:
+            anonymized = re.sub(old_pattern, new_pattern, anonymized, flags=re.IGNORECASE)
+        
+        # 5. 定数パターンを匿名化
+        for old_pattern, new_pattern in self.constant_patterns:
+            anonymized = re.sub(old_pattern, new_pattern, anonymized)
+        
+        # 6. 余分な空行を削除
         anonymized = re.sub(r'\n\s*\n\s*\n', '\n\n', anonymized)
         
         return anonymized
